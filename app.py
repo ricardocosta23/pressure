@@ -564,13 +564,96 @@ def pressure_copy_items_to_txt():
 @app.route('/pressure-rename-subitem', methods=['POST'])
 def pressure_rename_subitem():
     if request.method == 'POST':
-        data = request.get_json()
-        challenge = data['challenge']
+        try:
+            webhook_data = request.get_json()
+            linked_pulse_ids = webhook_data.get('event', {}).get('value', {}).get('linkedPulseIds')
+            triggering_pulse_id = webhook_data.get('event', {}).get('pulseId')
+            triggering_board_id = webhook_data.get('event', {}).get('boardId') # Extract boardId
 
-        return jsonify({'challenge': challenge})
+            if not triggering_pulse_id:
+                print("Error: Triggering pulse ID not found in the payload.")
+                return jsonify({"error": "Triggering pulse ID not found"}), 400
 
-        # print(request.json)
-        # return 'success', 200
+            if not triggering_board_id:
+                print("Error: Triggering board ID not found in the payload.")
+                return jsonify({"error": "Triggering board ID not found"}), 400
+
+            if linked_pulse_ids and isinstance(linked_pulse_ids, list) and linked_pulse_ids:
+                linked_pulse_id = linked_pulse_ids[0].get('linkedPulseId')
+                print(f"Liked pulse id is: {linked_pulse_id}")
+                print(f"Triggering pulse id is: {triggering_pulse_id}")
+                print(f"Triggering board id is: {triggering_board_id}") # Print the extracted board ID
+
+                monday_board_id = 6437270183
+                column_id_to_retrieve = "texto90__1"
+                headers = {"Authorization": API_KEY, "Content-Type": "application/json"}
+
+                # Query to get the value from the linked item
+                query_get_value = f"""
+                    query {{
+                        items (ids: [{linked_pulse_id}]) {{
+                            column_values (ids: ["{column_id_to_retrieve}"]) {{
+                                text
+                            }}
+                        }}
+                    }}
+                """
+                data_get_value = {'query': query_get_value}
+                response_get_value = requests.post(url=API_URL, json=data_get_value, headers=headers)
+                response_get_value.raise_for_status()
+                monday_data_get_value = response_get_value.json()
+
+                column_value = None
+                if monday_data_get_value.get('data', {}).get('items') and monday_data_get_value['data']['items']:
+                    item_data = monday_data_get_value['data']['items'][0]
+                    if item_data.get('column_values'):
+                        for col in item_data['column_values']:
+                            if col.get('text') is not None:
+                                column_value = col['text']
+                                break
+
+                print(f"Value of column '{column_id_to_retrieve}' for item {linked_pulse_id}: {column_value}")
+                print("Received payload:", request.get_json())
+                if column_value is not None:
+                    # Mutation to update the name of the triggering pulse ID
+                    new_name_for_subitem = column_value # Use the fetched value as the new name
+                    mutation_rename = f"""
+                        mutation {{
+                            change_simple_column_value (item_id: {triggering_pulse_id}, board_id: {triggering_board_id}, column_id: "name", value: "{new_name_for_subitem}") {{
+                                id
+                            }}
+                        }}
+                    """
+                    data_rename = {'query': mutation_rename}
+                    print("Rename API Payload:", json.dumps(data_rename))  # Debugging line
+                    response_rename = requests.post(url=API_URL, json=data_rename, headers=headers)
+                    response_rename.raise_for_status()
+                    monday_data_rename = response_rename.json()
+                    print("Rename response:", monday_data_rename)
+
+                    if monday_data_rename.get('data', {}).get('change_item_name', {}).get('id'):
+                        print(f"Successfully renamed item {triggering_pulse_id} to '{column_value}'.")
+                        return jsonify({"status": "success", "linkedPulseId": linked_pulse_id, "columnValue": column_value, "renamedItemId": triggering_pulse_id, "newName": column_value}), 200
+                    else:
+                        error_message_rename = monday_data_rename.get('errors', [{}])[0].get('message', 'Failed to rename item')
+                        print(f"Error renaming item {triggering_pulse_id}: {error_message_rename}")
+                        return jsonify({"status": "processed", "linkedPulseId": linked_pulse_id, "columnValue": column_value, "renameError": error_message_rename}), 500
+                else:
+                    print(f"Value not found in column '{column_id_to_retrieve}' for item {linked_pulse_id}.")
+                    return jsonify({"status": "processed", "linkedPulseId": linked_pulse_id, "columnValue": None, "renameStatus": "value_not_found"}), 200
+
+            else:
+                print("Liked pulse IDs not found or is not a valid list in the payload.")
+                return jsonify({"status": "skipped", "message": "Liked pulse IDs not found"}), 200
+
+        except requests.exceptions.RequestException as e:
+            print(f"Error communicating with Monday.com API: {e}")
+            if 'response_rename' in locals() and hasattr(response_rename, 'text'):  # Use response_rename here
+                print(f"Response content: {response_rename.text}")
+            return jsonify({"error": f"API communication error: {e}"}), 500
+        except Exception as e:
+            print(f"Error processing payload: {e}")
+            return jsonify({"error": f"Error processing payload: {e}"}), 400
     else:
         abort(400)
         
