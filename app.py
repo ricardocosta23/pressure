@@ -459,15 +459,106 @@ def update_monday_item(item_id, board_id, column_values, api_key, api_url, logge
 @app.route('/pressure-copy-items-to-txt', methods=['POST'])
 def pressure_copy_items_to_txt():
     if request.method == 'POST':
-        data = request.get_json()
-        challenge = data['challenge']
+        try:
+            data = request.get_json()
+            if 'challenge' in data:
+                challenge = data['challenge']
+                print("Received challenge:", challenge)
+                return jsonify({'challenge': challenge}), 200
 
-        return jsonify({'challenge': challenge})
+            webhook_data = data
+            print("Received webhook data:", webhook_data)
 
-        # print(request.json)
-        # return 'success', 200
+            # Extract the triggering item ID
+            triggering_item_id = webhook_data.get('event', {}).get('pulseId')
+
+            # Extract the linked item ID from the payload
+            linked_pulse_ids = webhook_data.get('event', {}).get('value', {}).get('linkedPulseIds')
+
+            linked_item_id = None
+            if linked_pulse_ids and isinstance(linked_pulse_ids, list) and linked_pulse_ids:
+                linked_item_id = linked_pulse_ids[0].get('linkedPulseId')
+
+            if linked_item_id:
+                print(f"Extracted Linked Item ID: {linked_item_id}")
+                print(f"Triggering Item ID: {triggering_item_id}")
+
+                headers = {"Authorization": API_KEY, "Content-Type": "application/json"}
+
+                # --- Query to get the NAME of the linked item ---
+                query_get_linked_item_name = f"""
+                    query {{
+                      items (ids: [{linked_item_id}]) {{
+                        name
+                      }}
+                    }}
+                """
+                data_get_linked_item_name = {'query': query_get_linked_item_name}
+                monday_response_get_name = requests.post(url=API_URL, json=data_get_linked_item_name, headers=headers)
+                monday_data_get_name = monday_response_get_name.json()
+
+                linked_item_name = None
+                if monday_response_get_name.status_code == 200 and monday_data_get_name.get('data') and monday_data_get_name['data'].get('items') and monday_data_get_name['data']['items']:
+                    linked_item_name = monday_data_get_name['data']['items'][0].get('name')
+                    print(f"Name of linked item (ID: {linked_item_id}): {linked_item_name}")
+                else:
+                    logger.error(f"Error fetching name of linked item (ID: {linked_item_id}): {monday_response_get_name.status_code} - {monday_response_get_name.text}")
+                    # Decide how to proceed if the name cannot be fetched
+                    linked_item_name = "" # Or handle the error differently
+
+                # --- Query to get other column values from the linked item ---
+                query_get_linked_item_data = f"""
+                    query {{
+                      items (ids: [{linked_item_id}]) {{
+                        column_values (ids: ["{SOURCE_COLUMN_ID_TEXT_1}", "{SOURCE_COLUMN_ID_TEXT_2}"]) {{
+                          id
+                          text
+                        }}
+                      }}
+                    }}
+                """
+                data_get_linked_item_data = {'query': query_get_linked_item_data}
+                monday_response_get_data = requests.post(url=API_URL, json=data_get_linked_item_data, headers=headers)
+                monday_data_get_data = monday_response_get_data.json()
+
+                linked_item_text_1_value = ""
+                linked_item_text_2_value = ""
+
+                if monday_response_get_data.status_code == 200 and monday_data_get_data.get('data') and monday_data_get_data['data'].get('items') and monday_data_get_data['data']['items']:
+                    linked_item = monday_data_get_data['data']['items'][0]
+                    linked_item_text_1_value = next((cv.get('text') for cv in linked_item.get('column_values', []) if cv.get('id') == SOURCE_COLUMN_ID_TEXT_1), "")
+                    linked_item_text_2_value = next((cv.get('text') for cv in linked_item.get('column_values', []) if cv.get('id') == SOURCE_COLUMN_ID_TEXT_2), "")
+
+                    print(f"Value of '{SOURCE_COLUMN_ID_TEXT_1}': {linked_item_text_1_value}")
+                    print(f"Value of '{SOURCE_COLUMN_ID_TEXT_2}': {linked_item_text_2_value}")
+
+                    # Prepare the column values to update, including the linked item's name
+                    column_values_to_update = {
+                        TARGET_COLUMN_ID_TEXT_1: linked_item_text_1_value,
+                        TARGET_COLUMN_ID_TEXT_2: linked_item_text_2_value,
+                        TARGET_COLUMN_ID_NAME: linked_item_name
+                    }
+
+                    # Update the Monday.com item using the new function
+                    if update_monday_item(triggering_item_id, TARGET_BOARD_ID, column_values_to_update, API_KEY, API_URL, logger):
+                        print(f"Successfully updated columns '{TARGET_COLUMN_ID_TEXT_1}', '{TARGET_COLUMN_ID_TEXT_2}', and '{TARGET_COLUMN_ID_NAME}'.")
+                        return jsonify({"message": f"Columns '{TARGET_COLUMN_ID_TEXT_1}', '{TARGET_COLUMN_ID_TEXT_2}', and '{TARGET_COLUMN_ID_NAME}' updated."}), 200
+                    else:
+                        logger.error(f"Failed to update item {triggering_item_id} on board {TARGET_BOARD_ID} with values: {column_values_to_update}")
+                        return jsonify({"error": f"Failed to update columns on Monday.com. Check server logs for details."}), 500
+                else:
+                    error_message = f"Error fetching data from linked item (ID: {linked_item_id}) on board {SOURCE_BOARD_ID}: {monday_response_get_data.status_code} - {monday_response_get_data.text}"
+                    logger.error(error_message)
+                    return jsonify({"error": error_message}), monday_response_get_data.status_code
+            else:
+                logger.info("'linkedPulseIds' not found in the webhook data (likely a removal). Skipping processing.")
+                return jsonify({"message": "'linkedPulseIds' not found, skipping processing."}), 200
+
+        except Exception as e:
+            logger.error(f"Error processing webhook data: {str(e)}")
+            return jsonify({"error": f"Error processing webhook data: {str(e)}"}), 400
     else:
-        abort(400)
+        return jsonify({"error": "Method not allowed"}), 405
         
 
 if __name__ == '__main__':
