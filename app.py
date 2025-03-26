@@ -559,6 +559,20 @@ def pressure_copy_items_to_txt():
             return jsonify({"error": f"Error processing webhook data: {str(e)}"}), 400
     else:
         return jsonify({"error": "Method not allowed"}), 405
+
+
+@app.route('/pressure-rename-subitem', methods=['POST'])
+def pressure_rename_subitem():
+    if request.method == 'POST':
+        data = request.get_json()
+        challenge = data['challenge']
+
+        return jsonify({'challenge': challenge})
+
+        # print(request.json)
+        # return 'success', 200
+    else:
+        abort(400)
         
 
 if __name__ == '__main__':
