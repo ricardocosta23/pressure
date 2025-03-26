@@ -1,0 +1,129 @@
+column_id = "data_mkmc9cq3"
+            # First query to get the date
+            date_query = f"""
+            query {{items (ids: [{item_id}]) {{
+                column_values {{(ids: ["{column_id}"])
+                    ... on DateValue {{
+                        date
+                    }}
+                }}
+            }}}}"""
+
+            response = requests.post(url=API_URL,
+                                     json={'query': date_query},
+                                     headers=headers)
+            date_data = response.json()
+
+            
+
+            # Extract the date value from response
+            try:
+                date_value = ""
+                column_values = date_data['data']['items'][0]['column_values']
+                for column in column_values:
+                    if 'date' in column:
+                        date_value = column['date']
+                        break
+            except (KeyError, IndexError):
+                date_value = ""
+
+            print ("datevalue:", date_data)
+            # Convert string date to datetime, add days, then format back to string
+            current_date = datetime.strptime(date_value, '%Y-%m-%d')
+
+            offset_days = int(list(subitem_offset)[0]) if subitem_offset else 0
+            new_date = (current_date +
+                        timedelta(days=offset_days)).strftime('%Y-%m-%d')
+
+            # Second query to update with the extracted
+            number_query = f"""
+                query {{items (ids: [{subitem_id}]) {{
+                    column_values {{
+                        ... on NumbersValue {{
+                            number
+                              }}
+                          }}
+                      }}}}"""
+
+            response = requests.post(url=API_URL,
+                                     json={'query': number_query},
+                                     headers=headers)
+            number_data = response.json()
+
+            try:
+                number_value = ""
+                column_values = number_data['data']['items'][0][
+                    'column_values']
+                for column in column_values:
+                    if 'number' in column:
+                        number_value = column['number']
+                        break
+            except (KeyError, IndexError):
+                number_value = ""
+                print("number value is:", number_value)
+
+            # Convert string date to datetime, add days, then format back to string
+            current_date = datetime.strptime(date_value, '%Y-%m-%d')
+
+            offset_days = int(list(subitem_offset)[0]) if subitem_offset else 0
+            new_date = (current_date +
+                        timedelta(days=offset_days)).strftime('%Y-%m-%d')
+
+            date_data = response.json()
+
+            update_query = f'mutation{{ change_simple_column_value (item_id: {subitem_id}, board_id: {subitem_board_id}, column_id: "dup__of_data_mkmx6xcr", value: "{date_value}") {{ id }} }}'
+            data = {'query': update_query}
+
+            response = requests.post(url=API_URL, json=data, headers=headers)
+
+            if number_value == 1:
+
+                updateid_query = f'mutation{{ change_simple_column_value (item_id: {item_id}, board_id: {board_id}, column_id: "texto_1_mkncnqc9", value: "{subitem_id}") {{ id }} }}'
+                data = {'query': updateid_query}
+
+            response = requests.post(url=API_URL, json=data, headers=headers)
+
+            if number_value == 1:
+
+                updateboardid_query = f'mutation{{ change_simple_column_value (item_id: {item_id}, board_id: {board_id}, column_id: "texto_mknc26v7", value: "{subitem_board_id}") {{ id }} }}'
+                data = {'query': updateboardid_query}
+
+            response = requests.post(url=API_URL, json=data, headers=headers)
+
+            if number_value == 2:
+
+                updateid2_query = f'mutation{{ change_simple_column_value (item_id: {item_id}, board_id: {board_id}, column_id: "texto_2_mkncg9ba", value: "{subitem_id}") {{ id }} }}'
+                data = {'query': updateid2_query}
+
+            response = requests.post(url=API_URL, json=data, headers=headers)
+
+
+
+            if response.status_code == 200:
+                print("Successfully updated Monday.com column:",
+                      response.json())
+                return jsonify({
+                    "status": "success",
+                    "message": "Column updated"
+                }), 200
+            else:
+                print(
+                    f"Error updating Monday.com column: {response.status_code} - {response.text}"
+                )
+                return jsonify({
+                    "error": "Failed to update column",
+                    "monday_response": response.text
+                }), response.status_code
+
+        except (KeyError, TypeError, AttributeError) as e:
+            print(f"Error processing webhook data: {e}")
+            return jsonify({"error": "Error processing webhook data"}), 400
+        except requests.exceptions.RequestException as e:
+            print(f"Error communicating with Monday.com API: {e}")
+            return jsonify(
+                {"error": "Error communicating with Monday.com API"}), 500
+        except Exception as e:
+            print(f"An unexpected error occurred: {e}")
+            return jsonify({"error": "An unexpected error occurred"}), 500
+    else:
+        abort(400)

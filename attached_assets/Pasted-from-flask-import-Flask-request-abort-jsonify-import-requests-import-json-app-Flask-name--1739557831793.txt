@@ -1,0 +1,120 @@
+from flask import Flask, request, abort, jsonify
+import requests
+import json
+
+app = Flask(__name__)
+
+    # Replace with your actual Monday.com API key
+API_KEY = "eyJhbGciOiJIUzI1NiJ9.eyJ0aWQiOjQ0NDgyMTkzNywiYWFpIjoxMSwidWlkIjo1MDUxOTQxNiwiaWFkIjoiMjAyNC0xMi0wNVQxMTo0NDo1MS4wMDBaIiwicGVyIjoibWU6d3JpdGUiLCJhY3RpZCI6MTk0MDQyNTAsInJnbiI6InVzZTEifQ.NoFHSo0NrcRf6n-NpVXljfaWXg5wU4uO04wdmKBvHEs"
+API_URL = "https://api.monday.com/v2"
+
+@app.route('/webhook', methods=['POST'])
+def webhook():
+    if request.method == 'POST':
+            try:
+                webhook_data = request.get_json()
+                print("Received webhook data:", webhook_data)  # Debugging: Print received data
+
+                # Extract board ID and item ID from the webhook (adapt to your webhook's structure)
+                board_id = webhook_data.get('event', {}).get('boardId', {})
+                item_id = webhook_data.get('event', {}).get('pulseId', {})
+
+                if not board_id:
+                    print("Error: Could not extract board_id or item_id from webhook.")
+                    return jsonify({"error": "Missing board_id or item_id in webhook"}), 400
+
+                # Information you want to send back to Monday.com (Column X)
+                column_value = "Em"  # Replace with the actual value
+
+                # Construct the GraphQL mutation to update the column
+                # Replace 'X' with the actual column ID or key
+                mutation = f"""
+                    mutation {{
+                      change_column_value (
+                        board_id: {board_id},
+                        item_id: {item_id},
+                        column_id: "texto_mkn4daz3",  
+                        value: "Em"
+                      ) {{
+                        id
+                      }}
+                    }}
+                """
+                print("Column Value:", column_value)  # See the Python value
+                print("Mutation:", mutation)        # See the EXACT string being sent
+
+                
+                headers = {"Authorization": API_KEY, "Content-Type": "application/json"}
+                data = {"query": mutation}
+
+                response = requests.post(API_URL, json=data, headers=headers)
+
+                if response.status_code == 200:
+                    print("Successfully updated Monday.com column:", response.json())
+                    return jsonify({"status": "success", "message": "Column updated"}), 200
+                else:
+                    print(f"Error updating Monday.com column: {response.status_code} - {response.text}")
+                    return jsonify({"error": "Failed to update column", "monday_response": response.text}), response.status_code
+
+            except (KeyError, TypeError, AttributeError) as e:  # Handle JSON extraction errors
+                print(f"Error processing webhook data: {e}")
+                return jsonify({"error": "Error processing webhook data"}), 400
+
+            except requests.exceptions.RequestException as e:  # Handle requests errors
+                print(f"Error communicating with Monday.com API: {e}")
+                return jsonify({"error": "Error communicating with Monday.com API"}), 500
+
+            except Exception as e: # Catch any other exceptions
+                print(f"An unexpected error occurred: {e}")
+                return jsonify({"error": "An unexpected error occurred"}), 500
+
+    else:
+            abort(400)
+
+@app.route('/teste', methods=['POST'])
+def teste():
+    try:
+        new_value = request.json.get('value')  # Get the new value from the request body
+
+        if new_value is None:
+            return jsonify({"error": "Missing 'value' in request body"}), 400
+
+    # Construct the GraphQL mutation.  Crucially, escape the value!
+        mutation = f"""
+        mutation {{
+          change_column_value (
+            board_id: 8476629071,  # Your board ID
+            item_id: 8476642187,  # Your item ID
+            column_id: "texto_mkn4daz3",  # Your column ID
+            value: {json.dumps(new_value)}  # Escape the value!
+          ) {{
+            id
+          }}
+        }}
+        """
+
+        headers = {"Authorization": API_KEY, "Content-Type": "application/json"}
+        data = {"query": mutation}
+
+        response = requests.post(API_URL, json=data, headers=headers)
+
+        if response.status_code == 200:
+         print("Successfully updated Monday.com column:", response.json())
+        return jsonify({"status": "success", "message": "Column updated", "response": response.json()}), 200
+         else:
+        print(f"Error updating Monday.com column: {response.status_code} - {response.text}")
+        return jsonify({"error": "Failed to update column", "monday_response": response.text}), response.status_code
+
+except (ValueError, TypeError) as e:
+    print(f"Error processing value: {e}")
+    return jsonify({"error": "Invalid value"}), 400
+except requests.exceptions.RequestException as e:
+    print(f"Error communicating with Monday.com API: {e}")
+    return jsonify({"error": "Error communicating with Monday.com API"}), 500
+except Exception as e:
+    print(f"An unexpected error occurred: {e}")
+    return jsonify({"error": "An unexpected error occurred"}), 500
+
+
+if __name__ == '__main__':
+        app.run(debug=True, host='0.0.0.0', port=5000)
